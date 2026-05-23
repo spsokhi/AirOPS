@@ -14,6 +14,26 @@ and bridges the data to your browser.
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="Screenshot1.png" alt="AirOps Tracker main dashboard" width="900"/>
+</p>
+
+<p align="center">
+  <em>Live tactical view over Indian airspace with active contacts and SITREP ticker.</em>
+</p>
+
+<p align="center">
+  <img src="Screenshot2.png" alt="Aircraft detail panel" width="900"/>
+</p>
+
+<p align="center">
+  <em>Detail panel showing full state vector for a selected aircraft.</em>
+</p>
+
+---
+
 ## Features
 
 - **Live aircraft tracking** over Indian airspace (6°N–37°N, 68°E–97°E)
