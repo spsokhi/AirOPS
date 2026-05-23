@@ -1,0 +1,1685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AIROPS // Indian Airspace Tactical Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg-0: #060a12;
+    --bg-1: #0a121f;
+    --bg-2: #0f1a2c;
+    --bg-3: #16243b;
+    --panel: rgba(10, 18, 31, 0.92);
+    --panel-edge: #1c3556;
+    --grid-line: rgba(91, 159, 211, 0.08);
+    --iaf-blue: #5BB0E5;        /* IAF sky blue */
+    --iaf-blue-bright: #7FD0FF;
+    --iaf-navy: #0E3463;
+    --iaf-gold: #E8B948;        /* Ashok medallion */
+    --iaf-saffron: #FF9933;
+    --iaf-green: #138808;
+    --tac-red: #FF4646;
+    --tac-amber: #FFB347;
+    --text-0: #DCE9F5;
+    --text-1: #8FA8C2;
+    --text-2: #5D7491;
+    --text-3: #3D5470;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --display: 'Bebas Neue', 'Oswald', sans-serif;
+    --header: 'Oswald', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; overflow: hidden; }
+
+  body {
+    font-family: var(--mono);
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 0%, rgba(91, 159, 211, 0.04), transparent 60%),
+      radial-gradient(ellipse 60% 80% at 100% 100%, rgba(232, 185, 72, 0.03), transparent 60%),
+      var(--bg-0);
+    color: var(--text-0);
+    font-size: 13px;
+    line-height: 1.4;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Grain overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.4;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.4 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+
+  /* Scanline overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9998;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(91, 159, 211, 0.015) 0px,
+      rgba(91, 159, 211, 0.015) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+
+  /* ============ LAYOUT ============ */
+  .app {
+    display: grid;
+    grid-template-rows: 64px 1fr 28px;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  /* ============ TOP BAR ============ */
+  .topbar {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 24px;
+    padding: 0 20px;
+    background: linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 100%);
+    border-bottom: 1px solid var(--panel-edge);
+    position: relative;
+    z-index: 1000;
+  }
+  .topbar::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--iaf-blue) 20%, var(--iaf-gold) 50%, var(--iaf-blue) 80%, transparent);
+    opacity: 0.5;
+  }
+
+  .brand {
+    display: flex; align-items: center; gap: 14px;
+  }
+  .brand-mark {
+    width: 44px; height: 44px;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .brand-mark svg { width: 100%; height: 100%; }
+  .brand-text { display: flex; flex-direction: column; gap: 2px; }
+  .brand-text .t1 {
+    font-family: var(--display);
+    font-size: 24px;
+    letter-spacing: 4px;
+    line-height: 1;
+    color: var(--text-0);
+  }
+  .brand-text .t1 span { color: var(--iaf-gold); }
+  .brand-text .t2 {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--text-2);
+    text-transform: uppercase;
+  }
+
+  .status-strip {
+    display: flex; gap: 28px; justify-content: center;
+  }
+  .stat {
+    display: flex; flex-direction: column; gap: 2px;
+    min-width: 64px;
+  }
+  .stat-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--text-2);
+    text-transform: uppercase;
+  }
+  .stat-value {
+    font-family: var(--display);
+    font-size: 22px;
+    letter-spacing: 2px;
+    color: var(--iaf-blue-bright);
+    line-height: 1;
+    transition: color 0.3s;
+  }
+  .stat-value.gold { color: var(--iaf-gold); }
+  .stat-value.amber { color: var(--tac-amber); }
+  .stat-value.flash { animation: flash 0.5s; }
+  @keyframes flash {
+    0%, 100% { color: var(--iaf-blue-bright); }
+    50% { color: #fff; text-shadow: 0 0 10px var(--iaf-blue-bright); }
+  }
+
+  .topbar-right {
+    display: flex; align-items: center; gap: 20px;
+  }
+  .live-indicator {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--text-1);
+    text-transform: uppercase;
+  }
+  .live-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--tac-red);
+    box-shadow: 0 0 8px var(--tac-red);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .live-dot.idle { background: var(--text-3); box-shadow: none; animation: none; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+  }
+  .clock {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 1px;
+    color: var(--text-0);
+    padding: 6px 12px;
+    background: var(--bg-0);
+    border: 1px solid var(--panel-edge);
+    border-radius: 2px;
+  }
+  .clock span { color: var(--iaf-gold); }
+
+  /* ============ MAIN GRID ============ */
+  .main {
+    display: grid;
+    grid-template-columns: 320px 1fr 360px;
+    gap: 0;
+    overflow: hidden;
+    background: var(--bg-0);
+  }
+
+  .panel {
+    background: var(--panel);
+    border-right: 1px solid var(--panel-edge);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .panel.right { border-right: none; border-left: 1px solid var(--panel-edge); }
+
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px;
+    background: linear-gradient(90deg, var(--bg-3) 0%, var(--bg-2) 100%);
+    border-bottom: 1px solid var(--panel-edge);
+    position: relative;
+  }
+  .panel-header::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--iaf-gold);
+  }
+  .panel-header h2 {
+    font-family: var(--header);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 3px;
+    color: var(--text-0);
+    text-transform: uppercase;
+  }
+  .panel-header .badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 2px 8px;
+    background: var(--bg-0);
+    border: 1px solid var(--iaf-blue);
+    color: var(--iaf-blue-bright);
+    letter-spacing: 1px;
+  }
+
+  /* ============ LEFT PANEL: FILTERS ============ */
+  .filters-content { padding: 16px; overflow-y: auto; flex: 1; }
+
+  .filter-group { margin-bottom: 22px; }
+  .filter-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--text-2);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .filter-label::before {
+    content: '';
+    width: 6px; height: 6px;
+    background: var(--iaf-gold);
+    transform: rotate(45deg);
+  }
+
+  .search-box {
+    position: relative;
+    margin-bottom: 4px;
+  }
+  .search-box input {
+    width: 100%;
+    background: var(--bg-0);
+    border: 1px solid var(--panel-edge);
+    color: var(--text-0);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 10px 12px 10px 32px;
+    outline: none;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: border-color 0.2s;
+  }
+  .search-box input:focus {
+    border-color: var(--iaf-blue);
+    box-shadow: 0 0 0 1px var(--iaf-blue);
+  }
+  .search-box input::placeholder { color: var(--text-3); text-transform: uppercase; }
+  .search-box svg {
+    position: absolute; left: 10px; top: 50%;
+    transform: translateY(-50%);
+    width: 14px; height: 14px;
+    color: var(--text-2);
+  }
+  .search-hint {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-3);
+    margin-top: 4px;
+    letter-spacing: 1px;
+  }
+
+  .filter-chips {
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .chip {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1px;
+    padding: 6px 10px;
+    background: var(--bg-0);
+    border: 1px solid var(--panel-edge);
+    color: var(--text-1);
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.15s;
+    position: relative;
+  }
+  .chip:hover { border-color: var(--iaf-blue); color: var(--iaf-blue-bright); }
+  .chip.active {
+    background: var(--iaf-blue);
+    color: var(--bg-0);
+    border-color: var(--iaf-blue);
+    font-weight: 600;
+  }
+  .chip.active.gold { background: var(--iaf-gold); border-color: var(--iaf-gold); }
+
+  .slider-row {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .slider-vals {
+    display: flex; justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--iaf-blue-bright);
+    letter-spacing: 1px;
+  }
+  .slider-vals .label { color: var(--text-2); }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: var(--bg-3);
+    outline: none;
+    border-radius: 0;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    background: var(--iaf-gold);
+    cursor: pointer;
+    border: 2px solid var(--bg-0);
+    border-radius: 0;
+    transform: rotate(45deg);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 14px;
+    background: var(--iaf-gold);
+    cursor: pointer;
+    border: 2px solid var(--bg-0);
+    border-radius: 0;
+  }
+
+  .legend {
+    margin-top: auto;
+    padding: 16px;
+    border-top: 1px solid var(--panel-edge);
+    background: var(--bg-1);
+  }
+  .legend h3 {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--text-2);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+  }
+  .legend-row {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-1);
+    letter-spacing: 1px;
+  }
+  .legend-dot {
+    width: 10px; height: 10px;
+    flex-shrink: 0;
+  }
+  .legend-dot.t-c { background: var(--iaf-blue-bright); clip-path: polygon(50% 0%, 100% 100%, 0% 100%); }
+  .legend-dot.t-i { background: var(--iaf-gold); clip-path: polygon(50% 0%, 100% 100%, 0% 100%); }
+  .legend-dot.t-h { background: var(--iaf-saffron); border-radius: 50%; }
+  .legend-dot.t-x { background: var(--text-2); clip-path: polygon(50% 0%, 100% 100%, 0% 100%); }
+
+  /* ============ MAP ============ */
+  .map-wrap {
+    position: relative;
+    overflow: hidden;
+    background: #000;
+  }
+  #map {
+    width: 100%; height: 100%;
+    background: var(--bg-0);
+    cursor: crosshair;
+  }
+  .leaflet-container {
+    background: #050810 !important;
+    font-family: var(--mono) !important;
+  }
+  .leaflet-control-zoom {
+    border: 1px solid var(--panel-edge) !important;
+    margin: 12px !important;
+  }
+  .leaflet-control-zoom a {
+    background: var(--bg-1) !important;
+    color: var(--iaf-blue-bright) !important;
+    border-bottom-color: var(--panel-edge) !important;
+    font-family: var(--mono) !important;
+  }
+  .leaflet-control-zoom a:hover {
+    background: var(--iaf-blue) !important;
+    color: var(--bg-0) !important;
+  }
+  .leaflet-control-attribution {
+    background: rgba(6, 10, 18, 0.7) !important;
+    color: var(--text-3) !important;
+    font-size: 9px !important;
+    font-family: var(--mono) !important;
+    border: 1px solid var(--panel-edge);
+  }
+  .leaflet-control-attribution a { color: var(--text-2) !important; }
+
+  /* Map overlay HUD */
+  .map-hud {
+    position: absolute;
+    pointer-events: none;
+    z-index: 500;
+  }
+  .map-hud.tl { top: 12px; left: 60px; }
+  .map-hud.tr { top: 12px; right: 12px; }
+  .map-hud.bl { bottom: 30px; left: 12px; }
+  .map-hud.br { bottom: 30px; right: 12px; }
+
+  .hud-box {
+    background: rgba(10, 18, 31, 0.85);
+    border: 1px solid var(--panel-edge);
+    padding: 8px 12px;
+    backdrop-filter: blur(4px);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--text-1);
+    position: relative;
+  }
+  .hud-box .label { color: var(--text-3); }
+  .hud-box .val { color: var(--iaf-blue-bright); }
+  .hud-box .val.gold { color: var(--iaf-gold); }
+
+  /* Corner brackets for HUD */
+  .hud-box::before, .hud-box::after,
+  .hud-box .bl-corner, .hud-box .br-corner {
+    content: '';
+    position: absolute;
+    width: 8px; height: 8px;
+    border-color: var(--iaf-gold);
+    border-style: solid;
+    border-width: 0;
+  }
+  .hud-box::before { top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px; }
+  .hud-box::after { top: -1px; right: -1px; border-top-width: 1px; border-right-width: 1px; }
+  .hud-box .bl-corner { bottom: -1px; left: -1px; border-bottom-width: 1px; border-left-width: 1px; display: block; content: ''; }
+  .hud-box .br-corner { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; display: block; content: ''; }
+
+  /* Aircraft markers */
+  .aircraft-icon {
+    width: 24px; height: 24px;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.5s linear;
+  }
+  .aircraft-icon svg {
+    width: 100%; height: 100%;
+    filter: drop-shadow(0 0 3px rgba(91, 159, 211, 0.6));
+  }
+  .aircraft-icon.selected svg {
+    filter: drop-shadow(0 0 8px var(--iaf-gold));
+  }
+  .aircraft-icon.selected::after {
+    content: '';
+    position: absolute;
+    width: 40px; height: 40px;
+    border: 1px solid var(--iaf-gold);
+    border-radius: 50%;
+    animation: targetring 2s ease-out infinite;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  }
+  @keyframes targetring {
+    0% { width: 24px; height: 24px; opacity: 1; }
+    100% { width: 60px; height: 60px; opacity: 0; }
+  }
+
+  /* Custom popup */
+  .leaflet-popup-content-wrapper {
+    background: var(--bg-1) !important;
+    border: 1px solid var(--iaf-gold) !important;
+    border-radius: 0 !important;
+    color: var(--text-0) !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6) !important;
+    padding: 0 !important;
+  }
+  .leaflet-popup-content {
+    margin: 12px 14px !important;
+    font-family: var(--mono) !important;
+    font-size: 11px !important;
+    line-height: 1.6 !important;
+  }
+  .leaflet-popup-tip {
+    background: var(--iaf-gold) !important;
+  }
+  .leaflet-popup-close-button {
+    color: var(--text-1) !important;
+    font-size: 18px !important;
+  }
+  .popup-title {
+    font-family: var(--display);
+    font-size: 18px;
+    letter-spacing: 2px;
+    color: var(--iaf-gold);
+    margin-bottom: 4px;
+  }
+  .popup-row {
+    display: flex; justify-content: space-between;
+    border-bottom: 1px dashed var(--panel-edge);
+    padding: 2px 0;
+  }
+  .popup-row .k { color: var(--text-2); letter-spacing: 1px; }
+  .popup-row .v { color: var(--iaf-blue-bright); }
+
+  /* ============ RIGHT PANEL: AIRCRAFT LIST ============ */
+  .list-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px;
+  }
+
+  .ac-row {
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(28, 53, 86, 0.4);
+    cursor: pointer;
+    transition: all 0.12s;
+    position: relative;
+  }
+  .ac-row::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 2px;
+    background: transparent;
+    transition: background 0.12s;
+  }
+  .ac-row:hover { background: var(--bg-2); }
+  .ac-row:hover::before { background: var(--iaf-blue); }
+  .ac-row.active { background: var(--bg-3); }
+  .ac-row.active::before { background: var(--iaf-gold); }
+
+  .ac-icon-mini {
+    width: 18px; height: 18px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ac-icon-mini svg { width: 100%; height: 100%; }
+
+  .ac-info { min-width: 0; }
+  .ac-callsign {
+    font-family: var(--header);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 1.5px;
+    color: var(--text-0);
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ac-callsign.unknown { color: var(--text-2); font-style: italic; font-weight: 400; }
+  .ac-sub {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--text-2);
+    margin-top: 2px;
+    text-transform: uppercase;
+  }
+  .ac-sub .country { color: var(--iaf-gold); }
+
+  .ac-tel {
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 10px;
+  }
+  .ac-tel .alt { color: var(--iaf-blue-bright); font-weight: 500; }
+  .ac-tel .spd { color: var(--text-1); font-size: 9px; }
+
+  .empty-state {
+    padding: 40px 20px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-2);
+    letter-spacing: 1px;
+  }
+  .empty-state .icon { font-size: 32px; color: var(--text-3); margin-bottom: 12px; }
+
+  /* ============ BOTTOM TICKER ============ */
+  .ticker {
+    background: var(--bg-1);
+    border-top: 1px solid var(--panel-edge);
+    display: flex; align-items: center;
+    overflow: hidden;
+    position: relative;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    z-index: 100;
+  }
+  .ticker-label {
+    background: var(--iaf-gold);
+    color: var(--bg-0);
+    padding: 0 12px;
+    height: 100%;
+    display: flex; align-items: center;
+    font-weight: 700;
+    letter-spacing: 3px;
+    flex-shrink: 0;
+  }
+  .ticker-content {
+    display: flex;
+    animation: tickerscroll 80s linear infinite;
+    white-space: nowrap;
+    padding-left: 100%;
+  }
+  .ticker-content span {
+    padding: 0 24px;
+    color: var(--text-1);
+  }
+  .ticker-content span .hl { color: var(--iaf-blue-bright); }
+  .ticker-content span .gold { color: var(--iaf-gold); }
+  @keyframes tickerscroll {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-100%); }
+  }
+
+  /* ============ SELECTED AIRCRAFT DETAIL ============ */
+  .detail-panel {
+    position: absolute;
+    bottom: 40px; left: 12px;
+    width: 360px;
+    background: rgba(10, 18, 31, 0.95);
+    border: 1px solid var(--iaf-gold);
+    backdrop-filter: blur(6px);
+    z-index: 600;
+    transform: translateY(120%);
+    transition: transform 0.3s cubic-bezier(0.5, 0, 0.5, 1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  }
+  .detail-panel.open { transform: translateY(0); }
+  .detail-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px;
+    background: linear-gradient(90deg, var(--iaf-navy), var(--bg-2));
+    border-bottom: 1px solid var(--iaf-gold);
+  }
+  .detail-callsign {
+    font-family: var(--display);
+    font-size: 22px;
+    letter-spacing: 3px;
+    color: var(--iaf-gold);
+  }
+  .detail-close {
+    background: none; border: none; color: var(--text-1);
+    cursor: pointer; font-size: 18px; font-family: var(--mono);
+    padding: 0 4px;
+  }
+  .detail-close:hover { color: var(--tac-red); }
+  .detail-body { padding: 12px 14px; }
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+  }
+  .detail-cell {
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--panel-edge);
+  }
+  .detail-cell .k {
+    font-family: var(--mono); font-size: 8px;
+    letter-spacing: 2px; color: var(--text-2);
+    text-transform: uppercase;
+  }
+  .detail-cell .v {
+    font-family: var(--header); font-weight: 500;
+    font-size: 14px; color: var(--iaf-blue-bright);
+    letter-spacing: 1px;
+  }
+  .detail-cell .v.gold { color: var(--iaf-gold); }
+
+  /* ============ SCROLLBARS ============ */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg-0); }
+  ::-webkit-scrollbar-thumb { background: var(--panel-edge); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--iaf-blue); }
+
+  /* ============ LOADING ============ */
+  .loader-overlay {
+    position: absolute; inset: 0;
+    background: rgba(6, 10, 18, 0.9);
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 16px;
+    z-index: 700;
+    transition: opacity 0.4s;
+  }
+  .loader-overlay.hidden { opacity: 0; pointer-events: none; }
+  .radar-loader {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    border: 1px solid var(--iaf-blue);
+    position: relative;
+    box-shadow: inset 0 0 20px rgba(91, 159, 211, 0.2);
+  }
+  .radar-loader::before {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 50%; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--iaf-gold));
+    transform-origin: left center;
+    animation: radarsweep 2s linear infinite;
+  }
+  .radar-loader::after {
+    content: '';
+    position: absolute;
+    inset: 25%;
+    border: 1px solid rgba(91, 159, 211, 0.3);
+    border-radius: 50%;
+  }
+  @keyframes radarsweep {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  .loader-text {
+    font-family: var(--display);
+    font-size: 18px;
+    letter-spacing: 4px;
+    color: var(--iaf-blue-bright);
+  }
+  .loader-sub {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--text-2);
+  }
+
+  /* ============ ERROR TOAST ============ */
+  .toast {
+    position: fixed;
+    top: 80px; right: 20px;
+    background: var(--bg-1);
+    border: 1px solid var(--tac-red);
+    padding: 12px 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-0);
+    z-index: 10000;
+    transform: translateX(120%);
+    transition: transform 0.3s;
+    max-width: 320px;
+  }
+  .toast.show { transform: translateX(0); }
+  .toast .title {
+    color: var(--tac-red);
+    letter-spacing: 2px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    font-size: 10px;
+  }
+
+  /* Responsive */
+  @media (max-width: 1100px) {
+    .main { grid-template-columns: 260px 1fr 280px; }
+  }
+  @media (max-width: 800px) {
+    .main { grid-template-columns: 1fr; }
+    .panel { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============ TOP BAR ============ -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">
+        <!-- Stylized roundel: tri-color rings -->
+        <svg viewBox="0 0 44 44">
+          <defs>
+            <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#FFD75A" stop-opacity="0.4"/>
+              <stop offset="100%" stop-color="#FFD75A" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+          <circle cx="22" cy="22" r="20" fill="url(#glow)"/>
+          <circle cx="22" cy="22" r="18" fill="none" stroke="#FF9933" stroke-width="2"/>
+          <circle cx="22" cy="22" r="12" fill="none" stroke="#fff" stroke-width="2"/>
+          <circle cx="22" cy="22" r="6" fill="#138808"/>
+          <!-- Ashok-chakra spokes -->
+          <g stroke="#0E3463" stroke-width="0.8" opacity="0.7">
+            <line x1="22" y1="16" x2="22" y2="28"/>
+            <line x1="16" y1="22" x2="28" y2="22"/>
+            <line x1="17.7" y1="17.7" x2="26.3" y2="26.3"/>
+            <line x1="26.3" y1="17.7" x2="17.7" y2="26.3"/>
+          </g>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <div class="t1">AIR<span>OPS</span></div>
+        <div class="t2">Indian Airspace · Tactical Display</div>
+      </div>
+    </div>
+
+    <div class="status-strip">
+      <div class="stat">
+        <div class="stat-label">Tracked</div>
+        <div class="stat-value" id="stat-total">000</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Airborne</div>
+        <div class="stat-value gold" id="stat-airborne">000</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Ground</div>
+        <div class="stat-value amber" id="stat-ground">000</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Avg Alt</div>
+        <div class="stat-value" id="stat-alt">--</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Max Spd</div>
+        <div class="stat-value gold" id="stat-spd">--</div>
+      </div>
+    </div>
+
+    <div class="topbar-right">
+      <div class="live-indicator">
+        <span class="live-dot" id="live-dot"></span>
+        <span id="live-text">LIVE FEED</span>
+      </div>
+      <div class="clock">
+        <span id="clock-date"></span> · <span id="clock-time"></span> <span>IST</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main">
+
+    <!-- LEFT: FILTERS -->
+    <aside class="panel left">
+      <div class="panel-header">
+        <h2>◢ Filters · Search</h2>
+        <span class="badge">CTRL</span>
+      </div>
+      <div class="filters-content">
+
+        <div class="filter-group">
+          <div class="filter-label">ICAO24 / Callsign Lookup</div>
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input type="text" id="search-input" placeholder="e.g. 800200 / AIC101" maxlength="20"/>
+          </div>
+          <div class="search-hint">Hex ICAO24 or callsign prefix</div>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-label">Aircraft Category</div>
+          <div class="filter-chips" id="category-chips">
+            <div class="chip active gold" data-cat="all">ALL</div>
+            <div class="chip" data-cat="commercial">COMMERCIAL</div>
+            <div class="chip" data-cat="military">MIL/IFR</div>
+            <div class="chip" data-cat="helicopter">HELICOPTER</div>
+            <div class="chip" data-cat="ground">GROUND</div>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-label">Altitude Floor</div>
+          <div class="slider-row">
+            <input type="range" id="alt-slider" min="0" max="13000" step="500" value="0"/>
+            <div class="slider-vals">
+              <span class="label">FL000</span>
+              <span id="alt-val">FL000</span>
+              <span class="label">FL425</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-label">Origin Country</div>
+          <div class="filter-chips" id="country-chips">
+            <div class="chip active gold" data-cn="all">ALL</div>
+            <div class="chip" data-cn="India">INDIA</div>
+            <div class="chip" data-cn="foreign">FOREIGN</div>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-label">Refresh Cycle</div>
+          <div class="filter-chips" id="refresh-chips">
+            <div class="chip" data-rf="10000">10s</div>
+            <div class="chip active gold" data-rf="15000">15s</div>
+            <div class="chip" data-rf="30000">30s</div>
+            <div class="chip" data-rf="60000">60s</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="legend">
+        <h3>◢ Symbology</h3>
+        <div class="legend-row"><span class="legend-dot t-c"></span> COMMERCIAL · IN</div>
+        <div class="legend-row"><span class="legend-dot t-i"></span> COMMERCIAL · FOREIGN</div>
+        <div class="legend-row"><span class="legend-dot t-h"></span> ROTARY WING</div>
+        <div class="legend-row"><span class="legend-dot t-x"></span> ON GROUND</div>
+      </div>
+    </aside>
+
+    <!-- CENTER: MAP -->
+    <main class="map-wrap">
+      <div id="map"></div>
+
+      <!-- HUD overlays -->
+      <div class="map-hud tl">
+        <div class="hud-box">
+          <span class="bl-corner"></span><span class="br-corner"></span>
+          <span class="label">AOR:</span> <span class="val">INDIAN FIR</span> ·
+          <span class="label">BBOX:</span> <span class="val">6N 68E → 37N 97E</span>
+        </div>
+      </div>
+      <div class="map-hud tr">
+        <div class="hud-box">
+          <span class="bl-corner"></span><span class="br-corner"></span>
+          <span class="label">SRC:</span> <span class="val gold">OpenSky Net</span> ·
+          <span class="label">CYCLE:</span> <span class="val" id="hud-cycle">15s</span>
+        </div>
+      </div>
+      <div class="map-hud br">
+        <div class="hud-box">
+          <span class="bl-corner"></span><span class="br-corner"></span>
+          <span class="label">LAST SYNC:</span> <span class="val" id="hud-sync">--:--:--</span>
+        </div>
+      </div>
+
+      <!-- Selected aircraft detail -->
+      <div class="detail-panel" id="detail-panel">
+        <div class="detail-header">
+          <div class="detail-callsign" id="detail-callsign">--------</div>
+          <button class="detail-close" id="detail-close">✕</button>
+        </div>
+        <div class="detail-body">
+          <div class="detail-grid">
+            <div class="detail-cell"><div class="k">ICAO24</div><div class="v gold" id="d-icao">--</div></div>
+            <div class="detail-cell"><div class="k">Origin</div><div class="v" id="d-origin">--</div></div>
+            <div class="detail-cell"><div class="k">Altitude</div><div class="v" id="d-alt">--</div></div>
+            <div class="detail-cell"><div class="k">Velocity</div><div class="v" id="d-vel">--</div></div>
+            <div class="detail-cell"><div class="k">Heading</div><div class="v" id="d-head">--</div></div>
+            <div class="detail-cell"><div class="k">V-Rate</div><div class="v" id="d-vrate">--</div></div>
+            <div class="detail-cell"><div class="k">Lat</div><div class="v" id="d-lat">--</div></div>
+            <div class="detail-cell"><div class="k">Lon</div><div class="v" id="d-lon">--</div></div>
+            <div class="detail-cell"><div class="k">Squawk</div><div class="v" id="d-sq">--</div></div>
+            <div class="detail-cell"><div class="k">On Ground</div><div class="v" id="d-grd">--</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Loader -->
+      <div class="loader-overlay" id="loader">
+        <div class="radar-loader"></div>
+        <div class="loader-text">ACQUIRING SIGNALS</div>
+        <div class="loader-sub">Establishing link to OpenSky Network…</div>
+      </div>
+    </main>
+
+    <!-- RIGHT: AIRCRAFT LIST -->
+    <aside class="panel right">
+      <div class="panel-header">
+        <h2>◢ Active Contacts</h2>
+        <span class="badge" id="list-count">0</span>
+      </div>
+      <div class="list-content" id="list-content">
+        <div class="empty-state">
+          <div class="icon">◇</div>
+          NO CONTACTS YET<br/>
+          <span style="color: var(--text-3); font-size: 9px;">AWAITING FIRST SYNC</span>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- TICKER -->
+  <div class="ticker">
+    <div class="ticker-label">SITREP</div>
+    <div class="ticker-content" id="ticker-content">
+      <span>SYSTEM ONLINE · STANDBY FOR FIRST SYNC ·</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- Error toast -->
+<div class="toast" id="toast">
+  <div class="title">SIGNAL DEGRADED</div>
+  <div id="toast-msg">Lost link to OpenSky Network. Retrying…</div>
+</div>
+
+<script>
+/* ============================================================
+   AIROPS TRACKER — Indian Airspace Tactical Display
+   Data: OpenSky Network /states/all (free public endpoint)
+   ============================================================ */
+
+// ===== Bounding box: Indian airspace =====
+const BBOX = { lamin: 6.0, lomin: 68.0, lamax: 37.0, lomax: 97.0 };
+const OPENSKY_URL = `https://opensky-network.org/api/states/all?lamin=${BBOX.lamin}&lomin=${BBOX.lomin}&lamax=${BBOX.lamax}&lomax=${BBOX.lomax}`;
+
+// OpenSky's CORS headers are misconfigured for browser clients, so we route
+// through a proxy. The local Node proxy (server.js) is tried first — if it's
+// running you get real live data. Falls through to public proxies, then to
+// demo mode if everything fails.
+const PROXIES = [
+  (url) => `http://localhost:8787/api/states?${url.split('?')[1]}`,  // local server.js
+  (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
+];
+let activeProxyIdx = 0;
+let useDemoMode = false;
+
+// ===== State =====
+const state = {
+  aircraft: new Map(),         // icao24 -> {raw, marker, prev}
+  selected: null,
+  filters: { cat: 'all', cn: 'all', altMin: 0, search: '' },
+  refreshMs: 15000,
+  timer: null,
+  isFirst: true,
+};
+
+// ===== Map setup =====
+const map = L.map('map', {
+  zoomControl: true,
+  attributionControl: true,
+  worldCopyJump: false,
+  minZoom: 4,
+  maxZoom: 11,
+}).setView([22.5, 79.5], 5);
+
+// Dark tactical tile layer
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenSky Network · © CARTO · © OpenStreetMap',
+  subdomains: 'abcd',
+  maxZoom: 19,
+}).addTo(map);
+
+// Labels overlay (lighter)
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+  subdomains: 'abcd',
+  maxZoom: 19,
+  opacity: 0.7,
+}).addTo(map);
+
+// Indian airspace bounding box overlay
+L.rectangle([[BBOX.lamin, BBOX.lomin], [BBOX.lamax, BBOX.lomax]], {
+  color: '#E8B948',
+  weight: 1,
+  opacity: 0.4,
+  fill: false,
+  dashArray: '4 4',
+}).addTo(map);
+
+// Major IAF / civil hub markers (decorative reference points)
+const HUBS = [
+  { n: 'NEW DELHI · VIDP', lat: 28.5562, lon: 77.1000 },
+  { n: 'MUMBAI · VABB',    lat: 19.0887, lon: 72.8679 },
+  { n: 'BENGALURU · VOBL', lat: 13.1989, lon: 77.7068 },
+  { n: 'CHENNAI · VOMM',   lat: 12.9941, lon: 80.1709 },
+  { n: 'KOLKATA · VECC',   lat: 22.6547, lon: 88.4467 },
+  { n: 'HYDERABAD · VOHS', lat: 17.2403, lon: 78.4294 },
+  { n: 'AMBALA · VIAM',    lat: 30.3683, lon: 76.8167 },
+  { n: 'PUNE · VAPO',      lat: 18.5821, lon: 73.9197 },
+];
+HUBS.forEach(h => {
+  L.marker([h.lat, h.lon], {
+    icon: L.divIcon({
+      className: 'hub-marker',
+      html: `<div style="
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 8px;
+        letter-spacing: 1px;
+        color: #E8B948;
+        background: rgba(10, 18, 31, 0.6);
+        padding: 2px 5px;
+        border: 1px solid #1c3556;
+        white-space: nowrap;
+        transform: translate(8px, -50%);
+        pointer-events: none;
+      ">◆ ${h.n}</div>`,
+      iconSize: [0, 0],
+      iconAnchor: [0, 0],
+    }),
+    interactive: false,
+  }).addTo(map);
+});
+
+// ===== Aircraft icon SVGs =====
+function aircraftSvg(color, heading = 0, isHelicopter = false) {
+  if (isHelicopter) {
+    return `<svg viewBox="0 0 24 24" style="transform: rotate(${heading}deg);">
+      <circle cx="12" cy="12" r="4" fill="${color}" stroke="#060a12" stroke-width="0.8"/>
+      <line x1="12" y1="12" x2="12" y2="3" stroke="${color}" stroke-width="1" opacity="0.6"/>
+      <line x1="3" y1="12" x2="21" y2="12" stroke="${color}" stroke-width="0.8" opacity="0.4"/>
+    </svg>`;
+  }
+  return `<svg viewBox="0 0 24 24" style="transform: rotate(${heading}deg);">
+    <path d="M12 2 L14 11 L22 14 L22 16 L14 14 L13 21 L15 22 L15 23 L9 23 L9 22 L11 21 L10 14 L2 16 L2 14 L10 11 Z"
+      fill="${color}" stroke="#060a12" stroke-width="0.5"/>
+  </svg>`;
+}
+
+// ===== Categorization heuristics =====
+// OpenSky's category field is sparse; we use callsign patterns + speed/alt
+function categorize(s) {
+  const callsign = (s.callsign || '').trim().toUpperCase();
+  const onGround = s.on_ground;
+  const vel = s.velocity || 0;
+  const alt = s.baro_altitude || 0;
+
+  if (onGround) return 'ground';
+
+  // Helicopters: low altitude + low speed heuristic, or known H prefixes
+  if (vel < 80 && alt < 3000 && alt > 0) return 'helicopter';
+  if (/^(IAF|IFC|INDAF|IAM|IFB|IFG|IAV|VTUP|VTNV)/.test(callsign)) return 'military';
+  if (/^(RFR|RCH|MC|SAM|DUKE|SHELL|GRIZZ)/.test(callsign)) return 'military';
+
+  return 'commercial';
+}
+
+function isIndianRegistered(s) {
+  return (s.origin_country || '').toLowerCase() === 'india' ||
+         /^VT/i.test((s.callsign || '').trim());
+}
+
+// ===== Color picker per category =====
+function colorFor(s, cat) {
+  if (cat === 'ground') return '#5D7491';
+  if (cat === 'helicopter') return '#FF9933';
+  if (cat === 'military') return '#FF4646';
+  if (isIndianRegistered(s)) return '#E8B948';   // Indian civil = gold
+  return '#7FD0FF';                              // Foreign civil = sky blue
+}
+
+// ===== Build OpenSky state vector object =====
+function parseState(arr) {
+  return {
+    icao24: arr[0],
+    callsign: arr[1],
+    origin_country: arr[2],
+    time_position: arr[3],
+    last_contact: arr[4],
+    longitude: arr[5],
+    latitude: arr[6],
+    baro_altitude: arr[7],
+    on_ground: arr[8],
+    velocity: arr[9],
+    true_track: arr[10],
+    vertical_rate: arr[11],
+    geo_altitude: arr[13],
+    squawk: arr[14],
+  };
+}
+
+// ===== Marker creation =====
+function makeIcon(s, cat, isSelected) {
+  const heading = s.true_track || 0;
+  const isHeli = cat === 'helicopter';
+  const color = colorFor(s, cat);
+  return L.divIcon({
+    className: `aircraft-icon ${isSelected ? 'selected' : ''}`,
+    html: aircraftSvg(color, heading, isHeli),
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+  });
+}
+
+function popupContent(s, cat) {
+  const cs = (s.callsign || '').trim() || 'UNKNOWN';
+  const alt = s.baro_altitude ? `${Math.round(s.baro_altitude * 3.281)} FT` : 'N/A';
+  const spd = s.velocity ? `${Math.round(s.velocity * 1.944)} KT` : 'N/A';
+  const hdg = s.true_track ? `${Math.round(s.true_track)}°` : 'N/A';
+  return `
+    <div class="popup-title">${cs}</div>
+    <div class="popup-row"><span class="k">ICAO24</span><span class="v">${(s.icao24 || '').toUpperCase()}</span></div>
+    <div class="popup-row"><span class="k">ORIGIN</span><span class="v">${s.origin_country || '—'}</span></div>
+    <div class="popup-row"><span class="k">CATEGORY</span><span class="v">${cat.toUpperCase()}</span></div>
+    <div class="popup-row"><span class="k">ALTITUDE</span><span class="v">${alt}</span></div>
+    <div class="popup-row"><span class="k">VELOCITY</span><span class="v">${spd}</span></div>
+    <div class="popup-row"><span class="k">HEADING</span><span class="v">${hdg}</span></div>
+    <div class="popup-row"><span class="k">SQUAWK</span><span class="v">${s.squawk || '----'}</span></div>
+  `;
+}
+
+// ===== Filters =====
+function passesFilters(s, cat) {
+  const f = state.filters;
+  if (f.cat !== 'all' && f.cat !== cat) return false;
+  if (f.cn === 'India' && !isIndianRegistered(s)) return false;
+  if (f.cn === 'foreign' && isIndianRegistered(s)) return false;
+  if (f.altMin > 0 && (!s.baro_altitude || s.baro_altitude < f.altMin)) return false;
+  if (f.search) {
+    const q = f.search.toUpperCase();
+    const cs = (s.callsign || '').trim().toUpperCase();
+    const ic = (s.icao24 || '').toUpperCase();
+    if (!cs.includes(q) && !ic.includes(q)) return false;
+  }
+  return true;
+}
+
+// ===== Main update =====
+async function fetchData() {
+  if (useDemoMode) {
+    updateAircraft(generateDemoStates());
+    setLive(true, 'DEMO MODE');
+    if (state.isFirst) {
+      document.getElementById('loader').classList.add('hidden');
+      state.isFirst = false;
+    }
+    return;
+  }
+
+  // Try each proxy in order
+  for (let i = 0; i < PROXIES.length; i++) {
+    const idx = (activeProxyIdx + i) % PROXIES.length;
+    const url = PROXIES[idx](OPENSKY_URL);
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      // Some proxies wrap the payload — handle both shapes
+      const states = data.states || (data.contents && JSON.parse(data.contents).states) || [];
+      activeProxyIdx = idx;  // remember the one that worked
+      hideToast();
+      updateAircraft(states);
+      setLive(true);
+      if (state.isFirst) {
+        document.getElementById('loader').classList.add('hidden');
+        state.isFirst = false;
+      }
+      return;
+    } catch (err) {
+      console.warn(`Proxy ${idx} failed:`, err.message);
+    }
+  }
+
+  // All proxies failed — switch to demo mode permanently this session
+  console.error('All proxies failed. Switching to demo mode.');
+  useDemoMode = true;
+  showToast('Live feed unreachable · Switched to DEMO MODE');
+  setLive(true, 'DEMO MODE');
+  updateAircraft(generateDemoStates());
+  if (state.isFirst) {
+    document.getElementById('loader').classList.add('hidden');
+    state.isFirst = false;
+  }
+}
+
+// ===== Demo data generator =====
+// Simulates ~35 aircraft over Indian airspace with realistic callsigns,
+// origins, altitudes, and headings. Positions drift on each tick so the
+// dashboard feels live even when offline.
+const DEMO_FLEET = [
+  { cs: 'AIC101',  icao: '800abc', oc: 'India',  lat: 28.5, lon: 77.1, alt: 11000, vel: 240, hdg: 90,  vr: 5 },
+  { cs: 'AIC880',  icao: '800def', oc: 'India',  lat: 19.1, lon: 72.9, alt: 10500, vel: 235, hdg: 45,  vr: 0 },
+  { cs: 'IGO6E45', icao: '801111', oc: 'India',  lat: 13.2, lon: 77.7, alt: 9800,  vel: 220, hdg: 320, vr: -8 },
+  { cs: 'IGO6E22', icao: '801222', oc: 'India',  lat: 22.6, lon: 88.4, alt: 11500, vel: 245, hdg: 270, vr: 0 },
+  { cs: 'AXB712',  icao: '801333', oc: 'India',  lat: 12.9, lon: 80.1, alt: 8500,  vel: 200, hdg: 180, vr: 3 },
+  { cs: 'IAD2901', icao: '801444', oc: 'India',  lat: 17.2, lon: 78.4, alt: 12200, vel: 250, hdg: 90,  vr: 0 },
+  { cs: 'VTI201',  icao: '801555', oc: 'India',  lat: 30.4, lon: 76.8, alt: 9000,  vel: 215, hdg: 135, vr: 2 },
+  { cs: 'VTGOA1',  icao: '801666', oc: 'India',  lat: 15.4, lon: 73.8, alt: 7500,  vel: 195, hdg: 0,   vr: 5 },
+  { cs: 'IAF7301', icao: '801777', oc: 'India',  lat: 26.9, lon: 75.8, alt: 6500,  vel: 280, hdg: 200, vr: -3 },
+  { cs: 'IAF4421', icao: '801888', oc: 'India',  lat: 32.7, lon: 74.9, alt: 7200,  vel: 290, hdg: 90,  vr: 0 },
+  { cs: 'IFC101',  icao: '801999', oc: 'India',  lat: 27.1, lon: 82.0, alt: 8000,  vel: 270, hdg: 270, vr: 4 },
+  { cs: 'INDAF5',  icao: '802111', oc: 'India',  lat: 18.6, lon: 73.9, alt: 5500,  vel: 240, hdg: 45,  vr: 2 },
+  { cs: 'POLICE1', icao: '802222', oc: 'India',  lat: 28.6, lon: 77.2, alt: 1500,  vel: 55,  hdg: 90,  vr: 0 },
+  { cs: 'IAFHELI', icao: '802333', oc: 'India',  lat: 25.4, lon: 81.8, alt: 2200,  vel: 65,  hdg: 180, vr: 0 },
+  { cs: 'COASTGD', icao: '802444', oc: 'India',  lat: 9.9,  lon: 76.3, alt: 1800,  vel: 70,  hdg: 270, vr: 1 },
+  { cs: 'UAE544',  icao: '896aaa', oc: 'United Arab Emirates', lat: 20.3, lon: 70.5, alt: 12500, vel: 255, hdg: 75, vr: 0 },
+  { cs: 'UAE204',  icao: '896bbb', oc: 'United Arab Emirates', lat: 25.6, lon: 71.2, alt: 11800, vel: 248, hdg: 90, vr: 2 },
+  { cs: 'QTR778',  icao: '06aaaa', oc: 'Qatar',   lat: 24.8, lon: 70.1, alt: 12800, vel: 260, hdg: 105, vr: 0 },
+  { cs: 'SVA742',  icao: '710aaa', oc: 'Saudi Arabia', lat: 23.1, lon: 69.5, alt: 11200, vel: 252, hdg: 80, vr: -2 },
+  { cs: 'SIA422',  icao: '76daaa', oc: 'Singapore', lat: 11.5, lon: 92.8, alt: 12100, vel: 258, hdg: 280, vr: 0 },
+  { cs: 'THA313',  icao: '880aaa', oc: 'Thailand', lat: 14.2, lon: 94.5, alt: 10800, vel: 240, hdg: 260, vr: 3 },
+  { cs: 'CCA947',  icao: '780aaa', oc: 'China',   lat: 33.5, lon: 88.2, alt: 11500, vel: 245, hdg: 200, vr: 0 },
+  { cs: 'BAW256',  icao: '400aaa', oc: 'United Kingdom', lat: 24.5, lon: 88.0, alt: 12300, vel: 262, hdg: 295, vr: 0 },
+  { cs: 'AAL292',  icao: 'a00aaa', oc: 'United States', lat: 29.8, lon: 81.5, alt: 12500, vel: 265, hdg: 90, vr: 0 },
+  { cs: 'KLM871',  icao: '484aaa', oc: 'Netherlands', lat: 31.2, lon: 73.5, alt: 11900, vel: 258, hdg: 110, vr: -2 },
+  { cs: 'AFR218',  icao: '39aaaa', oc: 'France',  lat: 27.4, lon: 71.8, alt: 12200, vel: 256, hdg: 100, vr: 0 },
+  { cs: 'DLH761',  icao: '3caaaa', oc: 'Germany', lat: 28.1, lon: 84.5, alt: 11700, vel: 254, hdg: 295, vr: 4 },
+  { cs: 'ETD188',  icao: '896ccc', oc: 'United Arab Emirates', lat: 21.5, lon: 84.2, alt: 12400, vel: 261, hdg: 280, vr: 0 },
+  { cs: 'IGO6E801', icao: '802555', oc: 'India', lat: 16.5, lon: 80.6, alt: 10200, vel: 230, hdg: 0,   vr: 6 },
+  { cs: 'AIC439',  icao: '802666', oc: 'India',  lat: 26.8, lon: 80.9, alt: 9500,  vel: 225, hdg: 225, vr: 0 },
+  { cs: 'IGO6E315', icao: '802777', oc: 'India', lat: 21.2, lon: 79.1, alt: 11000, vel: 240, hdg: 135, vr: 0 },
+  { cs: 'AXB141',  icao: '802888', oc: 'India',  lat: 11.0, lon: 76.0, alt: 8800,  vel: 215, hdg: 90,  vr: 2 },
+  { cs: '',        icao: '802999', oc: 'India',  lat: 22.3, lon: 70.8, alt: 0,     vel: 0,   hdg: 0,   vr: 0, ground: true },
+  { cs: 'AIC2945', icao: '803111', oc: 'India',  lat: 28.5, lon: 77.1, alt: 0,     vel: 0,   hdg: 270, vr: 0, ground: true },
+  { cs: 'IGO6E550', icao: '803222', oc: 'India', lat: 19.1, lon: 72.9, alt: 0,     vel: 5,   hdg: 90,  vr: 0, ground: true },
+];
+
+let demoTick = 0;
+function generateDemoStates() {
+  demoTick++;
+  return DEMO_FLEET.map(f => {
+    // Drift airborne aircraft by heading
+    let lat = f.lat, lon = f.lon;
+    if (!f.ground) {
+      const headRad = f.hdg * Math.PI / 180;
+      // Roughly 0.01° per tick — visible drift without leaving the box
+      lat += Math.cos(headRad) * 0.012 * demoTick;
+      lon += Math.sin(headRad) * 0.012 * demoTick;
+      // Wrap inside the bounding box
+      if (lat > 37) lat = 6 + (lat - 37);
+      if (lat < 6)  lat = 37 - (6 - lat);
+      if (lon > 97) lon = 68 + (lon - 97);
+      if (lon < 68) lon = 97 - (68 - lon);
+    }
+    // Slight altitude jitter for realism
+    const altJitter = f.ground ? 0 : (Math.sin(demoTick * 0.3 + f.lat) * 50);
+    // OpenSky state vector format: [icao24, callsign, origin_country, ...]
+    return [
+      f.icao,
+      f.cs.padEnd(8, ' '),
+      f.oc,
+      Math.floor(Date.now() / 1000),
+      Math.floor(Date.now() / 1000),
+      lon,
+      lat,
+      f.ground ? null : f.alt + altJitter,
+      !!f.ground,
+      f.vel,
+      f.hdg,
+      f.vr,
+      null,
+      f.ground ? null : f.alt + altJitter,
+      f.cs.startsWith('IAF') || f.cs.startsWith('IFC') ? '7001' : '2000',
+      null, 0,
+    ];
+  });
+}
+
+function updateAircraft(states) {
+  const seen = new Set();
+  let total = 0, airborne = 0, ground = 0;
+  let sumAlt = 0, altCount = 0, maxSpd = 0;
+  const tickerEntries = [];
+
+  // First pass: filter and tag
+  const processed = states
+    .filter(arr => arr[5] !== null && arr[6] !== null) // need coords
+    .map(arr => {
+      const s = parseState(arr);
+      const cat = categorize(s);
+      return { s, cat };
+    });
+
+  // Update / add markers
+  processed.forEach(({ s, cat }) => {
+    if (!passesFilters(s, cat)) return;
+    seen.add(s.icao24);
+    total++;
+    if (s.on_ground) ground++; else airborne++;
+    if (s.baro_altitude) { sumAlt += s.baro_altitude; altCount++; }
+    if (s.velocity > maxSpd) maxSpd = s.velocity;
+
+    const existing = state.aircraft.get(s.icao24);
+    const isSelected = state.selected === s.icao24;
+    const latlng = [s.latitude, s.longitude];
+
+    if (existing) {
+      existing.marker.setLatLng(latlng);
+      existing.marker.setIcon(makeIcon(s, cat, isSelected));
+      existing.marker.bindPopup(popupContent(s, cat));
+      existing.raw = s; existing.cat = cat;
+    } else {
+      const marker = L.marker(latlng, { icon: makeIcon(s, cat, isSelected) }).addTo(map);
+      marker.bindPopup(popupContent(s, cat));
+      marker.on('click', () => selectAircraft(s.icao24));
+      state.aircraft.set(s.icao24, { raw: s, cat, marker });
+
+      // Add to ticker on first appearance
+      const cs = (s.callsign || '').trim() || s.icao24.toUpperCase();
+      tickerEntries.push(`<span><span class="gold">▲</span> NEW · <span class="hl">${cs}</span> · ${s.origin_country || 'UNK'}</span>`);
+    }
+  });
+
+  // Remove stale
+  for (const [icao, entry] of state.aircraft.entries()) {
+    if (!seen.has(icao)) {
+      map.removeLayer(entry.marker);
+      state.aircraft.delete(icao);
+      if (state.selected === icao) {
+        state.selected = null;
+        document.getElementById('detail-panel').classList.remove('open');
+      }
+    }
+  }
+
+  // ===== Update stats =====
+  setStat('stat-total', String(total).padStart(3, '0'));
+  setStat('stat-airborne', String(airborne).padStart(3, '0'));
+  setStat('stat-ground', String(ground).padStart(3, '0'));
+  setStat('stat-alt', altCount ? `${Math.round((sumAlt / altCount) * 3.281 / 1000)}K` : '--');
+  setStat('stat-spd', maxSpd ? `${Math.round(maxSpd * 1.944)}` : '--');
+
+  // Last sync time
+  const now = new Date();
+  document.getElementById('hud-sync').textContent = now.toTimeString().slice(0, 8);
+
+  // Refresh list
+  renderList();
+
+  // Update detail panel if selected
+  if (state.selected && state.aircraft.has(state.selected)) {
+    updateDetail(state.aircraft.get(state.selected));
+  }
+
+  // Update ticker
+  if (tickerEntries.length > 0) updateTicker(tickerEntries);
+}
+
+function renderList() {
+  const list = document.getElementById('list-content');
+  const entries = [...state.aircraft.values()]
+    .sort((a, b) => (b.raw.baro_altitude || 0) - (a.raw.baro_altitude || 0));
+
+  document.getElementById('list-count').textContent = entries.length;
+
+  if (entries.length === 0) {
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">◇</div>
+        NO MATCHING CONTACTS<br/>
+        <span style="color: var(--text-3); font-size: 9px;">ADJUST FILTERS</span>
+      </div>`;
+    return;
+  }
+
+  list.innerHTML = entries.map(({ raw: s, cat }) => {
+    const cs = (s.callsign || '').trim();
+    const isSel = state.selected === s.icao24;
+    const color = colorFor(s, cat);
+    const altK = s.baro_altitude ? `${Math.round(s.baro_altitude * 3.281 / 1000)}K FT` : 'GND';
+    const spd = s.velocity ? `${Math.round(s.velocity * 1.944)} KT` : '--';
+    const country = (s.origin_country || 'UNK').toUpperCase().slice(0, 12);
+    const isHeli = cat === 'helicopter';
+    return `
+      <div class="ac-row ${isSel ? 'active' : ''}" data-icao="${s.icao24}">
+        <div class="ac-icon-mini">${aircraftSvg(color, s.true_track || 0, isHeli)}</div>
+        <div class="ac-info">
+          <div class="ac-callsign ${cs ? '' : 'unknown'}">${cs || s.icao24.toUpperCase()}</div>
+          <div class="ac-sub">${s.icao24.toUpperCase()} · <span class="country">${country}</span></div>
+        </div>
+        <div class="ac-tel">
+          <div class="alt">${altK}</div>
+          <div class="spd">${spd}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll('.ac-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const icao = row.dataset.icao;
+      selectAircraft(icao);
+      const entry = state.aircraft.get(icao);
+      if (entry) map.flyTo(entry.marker.getLatLng(), Math.max(map.getZoom(), 7), { duration: 0.8 });
+    });
+  });
+}
+
+function selectAircraft(icao) {
+  // Remove previous selection visual
+  if (state.selected && state.aircraft.has(state.selected)) {
+    const prev = state.aircraft.get(state.selected);
+    prev.marker.setIcon(makeIcon(prev.raw, prev.cat, false));
+  }
+  state.selected = icao;
+  const entry = state.aircraft.get(icao);
+  if (!entry) return;
+  entry.marker.setIcon(makeIcon(entry.raw, entry.cat, true));
+  updateDetail(entry);
+  document.getElementById('detail-panel').classList.add('open');
+  renderList();
+}
+
+function updateDetail({ raw: s, cat }) {
+  const cs = (s.callsign || '').trim() || 'UNKNOWN';
+  document.getElementById('detail-callsign').textContent = cs;
+  document.getElementById('d-icao').textContent = (s.icao24 || '').toUpperCase();
+  document.getElementById('d-origin').textContent = s.origin_country || '—';
+  document.getElementById('d-alt').textContent = s.baro_altitude ? `${Math.round(s.baro_altitude * 3.281).toLocaleString()} FT` : 'N/A';
+  document.getElementById('d-vel').textContent = s.velocity ? `${Math.round(s.velocity * 1.944)} KT` : 'N/A';
+  document.getElementById('d-head').textContent = s.true_track ? `${Math.round(s.true_track)}°` : 'N/A';
+  document.getElementById('d-vrate').textContent = s.vertical_rate ? `${(s.vertical_rate * 196.85).toFixed(0)} FPM` : '0';
+  document.getElementById('d-lat').textContent = s.latitude.toFixed(4) + '°';
+  document.getElementById('d-lon').textContent = s.longitude.toFixed(4) + '°';
+  document.getElementById('d-sq').textContent = s.squawk || '----';
+  document.getElementById('d-grd').textContent = s.on_ground ? 'YES' : 'NO';
+}
+
+// ===== UI helpers =====
+function setStat(id, val) {
+  const el = document.getElementById(id);
+  if (el.textContent !== val) {
+    el.textContent = val;
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 500);
+  }
+}
+
+function setLive(isLive, label) {
+  const dot = document.getElementById('live-dot');
+  const text = document.getElementById('live-text');
+  if (isLive) {
+    dot.classList.remove('idle');
+    text.textContent = label || 'LIVE FEED';
+    if (label === 'DEMO MODE') {
+      dot.style.background = 'var(--iaf-gold)';
+      dot.style.boxShadow = '0 0 8px var(--iaf-gold)';
+    }
+  } else {
+    dot.classList.add('idle');
+    dot.style.background = '';
+    dot.style.boxShadow = '';
+    text.textContent = label || 'NO LINK';
+  }
+}
+
+function showToast(msg) {
+  document.getElementById('toast-msg').textContent = msg;
+  document.getElementById('toast').classList.add('show');
+}
+function hideToast() {
+  document.getElementById('toast').classList.remove('show');
+}
+
+function updateTicker(entries) {
+  const el = document.getElementById('ticker-content');
+  // keep current + append; trim if too long
+  const all = entries.slice(0, 10).join('');
+  el.innerHTML = all + el.innerHTML;
+  // limit length
+  if (el.children.length > 40) {
+    while (el.children.length > 40) el.removeChild(el.lastChild);
+  }
+}
+
+// ===== Clock =====
+function updateClock() {
+  const now = new Date();
+  const ist = new Date(now.getTime() + (5.5 * 60 + now.getTimezoneOffset()) * 60000);
+  const d = ist.toISOString().slice(0, 10);
+  const t = ist.toTimeString().slice(0, 8);
+  document.getElementById('clock-date').textContent = d;
+  document.getElementById('clock-time').textContent = t;
+}
+
+// ===== Event listeners =====
+document.getElementById('search-input').addEventListener('input', (e) => {
+  state.filters.search = e.target.value.trim();
+  renderList();
+  // Also visually filter markers
+  refreshMarkerVisibility();
+});
+
+document.getElementById('alt-slider').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value);
+  state.filters.altMin = v;
+  const fl = Math.round(v * 3.281 / 100);
+  document.getElementById('alt-val').textContent = `FL${String(fl).padStart(3, '0')}`;
+  renderList();
+  refreshMarkerVisibility();
+});
+
+document.getElementById('category-chips').addEventListener('click', (e) => {
+  if (!e.target.classList.contains('chip')) return;
+  document.querySelectorAll('#category-chips .chip').forEach(c => c.classList.remove('active', 'gold'));
+  e.target.classList.add('active', 'gold');
+  state.filters.cat = e.target.dataset.cat;
+  renderList();
+  refreshMarkerVisibility();
+});
+
+document.getElementById('country-chips').addEventListener('click', (e) => {
+  if (!e.target.classList.contains('chip')) return;
+  document.querySelectorAll('#country-chips .chip').forEach(c => c.classList.remove('active', 'gold'));
+  e.target.classList.add('active', 'gold');
+  state.filters.cn = e.target.dataset.cn;
+  renderList();
+  refreshMarkerVisibility();
+});
+
+document.getElementById('refresh-chips').addEventListener('click', (e) => {
+  if (!e.target.classList.contains('chip')) return;
+  document.querySelectorAll('#refresh-chips .chip').forEach(c => c.classList.remove('active', 'gold'));
+  e.target.classList.add('active', 'gold');
+  state.refreshMs = parseInt(e.target.dataset.rf);
+  document.getElementById('hud-cycle').textContent = (state.refreshMs / 1000) + 's';
+  resetTimer();
+});
+
+document.getElementById('detail-close').addEventListener('click', () => {
+  document.getElementById('detail-panel').classList.remove('open');
+  if (state.selected && state.aircraft.has(state.selected)) {
+    const e = state.aircraft.get(state.selected);
+    e.marker.setIcon(makeIcon(e.raw, e.cat, false));
+  }
+  state.selected = null;
+  renderList();
+});
+
+function refreshMarkerVisibility() {
+  for (const entry of state.aircraft.values()) {
+    if (passesFilters(entry.raw, entry.cat)) {
+      if (!map.hasLayer(entry.marker)) entry.marker.addTo(map);
+    } else {
+      if (map.hasLayer(entry.marker)) map.removeLayer(entry.marker);
+    }
+  }
+}
+
+// ===== Timer =====
+function resetTimer() {
+  if (state.timer) clearInterval(state.timer);
+  state.timer = setInterval(fetchData, state.refreshMs);
+}
+
+// ===== Boot =====
+updateClock();
+setInterval(updateClock, 1000);
+fetchData();
+resetTimer();
+
+// Demo ticker seed
+document.getElementById('ticker-content').innerHTML = `
+  <span><span class="gold">●</span> AIROPS TRACKER ONLINE</span>
+  <span>AOR: <span class="hl">INDIAN FIR</span></span>
+  <span>SOURCE: <span class="gold">OPENSKY-NETWORK</span></span>
+  <span>POLLING /states/all · <span class="hl">15s CYCLE</span></span>
+  <span>BBOX: 6N 68E → 37N 97E</span>
+  <span><span class="gold">▲</span> ALL SYSTEMS NOMINAL</span>
+`;
+</script>
+
+</body>
+</html>
