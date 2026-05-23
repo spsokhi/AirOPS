@@ -1,6 +1,6 @@
 # AirOps Tracker
 
-A tactical-display web dashboard for tracking real-world aircraft in Indian
+A tactical display web dashboard for tracking real-world aircraft in Indian
 airspace, themed after Indian Air Force command-and-control aesthetics.
 
 Built as a single-page frontend (`airops.html`) backed by a tiny zero-dependency
